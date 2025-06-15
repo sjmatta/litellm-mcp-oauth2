@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "litellm-mcp-auth-patch"
+version = "0.1.0"
+description = "OAuth2 authentication and user cookie passthrough patch for LiteLLM MCP servers"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Networking",
+]
+dependencies = [
+    "litellm>=1.0.0",
+    "mcp>=1.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.24.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=22.0",
+    "isort>=5.0",
+    "mypy>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/anthropics/litellm-mcp-auth-patch"
+Repository = "https://github.com/anthropics/litellm-mcp-auth-patch"
+Issues = "https://github.com/anthropics/litellm-mcp-auth-patch/issues"
+
+[project.scripts]
+litellm-mcp-auth = "litellm_mcp_auth_patch.litellm_with_mcp_auth:main"
+
+[tool.setuptools.packages.find]
+where = ["litellm-mcp-auth-patch"]
+
+[tool.setuptools.package-data]
+"*" = ["*.py", "*.yaml", "*.yml", "*.json"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
