@@ -41,7 +41,7 @@ def main():
     # Now import and run LiteLLM exactly like the original CLI
     try:
         # Import LiteLLM's main CLI function
-        from litellm.proxy.proxy_cli import proxy_cli
+        from litellm.proxy.proxy_cli import run_server
         
         # Set sys.argv to make it look like we're running 'litellm' with the original args
         # sys.argv[0] is this script, sys.argv[1:] are the litellm arguments
@@ -49,8 +49,8 @@ def main():
         
         print(f"🚀 Starting LiteLLM with args: {' '.join(sys.argv[1:])}")
         
-        # Run LiteLLM's proxy CLI with all the original arguments
-        proxy_cli()
+        # Run LiteLLM's proxy server with all the original arguments
+        run_server()
         
     except ImportError:
         print("❌ LiteLLM not found. Install with: pip install litellm")

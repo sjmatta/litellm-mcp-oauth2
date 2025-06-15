@@ -22,9 +22,9 @@ class OAuth2Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
     
     # OAuth2 Server Configuration
-    token_url: str = Field(..., description="OAuth2 token endpoint URL")
-    client_id: str = Field(..., description="OAuth2 client ID")
-    client_secret: str = Field(..., description="OAuth2 client secret")
+    token_url: str = Field(..., min_length=1, description="OAuth2 token endpoint URL")
+    client_id: str = Field(..., min_length=1, description="OAuth2 client ID")
+    client_secret: str = Field(..., min_length=1, description="OAuth2 client secret")
     
     # Grant type (currently only client_credentials supported)
     grant_type: OAuth2GrantType = Field(
