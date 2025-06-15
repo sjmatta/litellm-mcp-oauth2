@@ -1,263 +1,179 @@
-# LiteLLM MCP OAuth2 Authentication
+# LiteLLM MCP Authentication Solution
 
-**Zero-modification OAuth2 authentication for LiteLLM's MCP server connections.**
+## The Problem
 
-## Project Structure
+**LiteLLM Proxy has ZERO authentication when connecting to MCP servers.**
 
+This creates two critical security gaps:
+
+### 1. Service-to-Service Authentication Gap (Tool Discovery)
+When LiteLLM Proxy starts up, it needs to discover what tools are available from MCP servers. This happens **out-of-band** from user requests - it's LiteLLM itself talking to MCP servers to build its tool registry.
+
+**Current state:** ❌ No authentication - any MCP server must be completely open  
+**Required:** ✅ OAuth2 client credentials flow for service authentication
+
+### 2. User Session Authentication Gap (Tool Execution)
+When a user makes a request through LiteLLM Proxy and it needs to call MCP tools, the MCP server needs the user's session context to authorize and personalize the tool execution.
+
+**Current state:** ❌ No user context forwarded - MCP servers can't identify the user  
+**Required:** ✅ User cookie passthrough to maintain session context
+
+## The Solution
+
+**Zero-modification monkey patch** that replaces LiteLLM's MCP manager with an enhanced version supporting both authentication flows.
+
+### Key Insight: MCP SDK Already Supports Authentication
+The MCP Python SDK has a `headers` parameter in both `sse_client()` and `streamablehttp_client()`. We leverage this existing capability.
+
+### How It Works
+
+```python
+# Before: LiteLLM connects to MCP servers with no auth
+await sse_client(url="https://mcp-server.com/mcp")
+
+# After: Our enhanced manager injects authentication
+await sse_client(url="https://mcp-server.com/mcp", headers={
+    "Authorization": "Bearer <oauth2_token>",     # Service auth
+    "Cookie": "session_id=<user_session>"        # User context
+})
 ```
-├── litellm-oauth2-patch/          # 🎯 IMPLEMENTATION - Deploy this
-│   ├── litellm_oauth2_patch.py    # Main patch system
-│   ├── enhanced_mcp_server_manager.py  # Enhanced MCP manager
-│   ├── oauth2_token_manager.py    # OAuth2 token management
-│   ├── oauth2_config_schema.py    # Configuration models
-│   ├── __init__.py               # Package exports
-│   ├── pyproject.toml            # Dependencies
-│   └── README.md                 # Implementation docs
-│
-├── testing/                      # 🧪 VALIDATION - For testing only
-│   ├── test_success_criteria.py  # Main validation script
-│   ├── mock_servers.py          # Mock OAuth2/MCP servers
-│   └── README.md                # Testing documentation
-│
-├── CLAUDE.md                     # Project development log
-└── README.md                     # This overview
-```
-
-## What This Solves
-
-LiteLLM Proxy currently has **no authentication support** when connecting to MCP servers. This implementation adds OAuth2 authentication that works in two scenarios:
-
-1. **Service-to-Service (Startup)**: LiteLLM authenticates to MCP servers using OAuth2 bearer tokens during tool discovery
-2. **User Passthrough (Runtime)**: LiteLLM forwards user cookies to MCP servers during tool execution
-
-**The Goal**: Add OAuth2 authentication to LiteLLM Proxy's MCP client implementation without modifying LiteLLM's source code.
-
-## How It Works
-
-### The Breakthrough Discovery
-
-1. **MCP Python SDK supports authentication**: Both `sse_client()` and `streamablehttp_client()` accept `headers` and `auth` parameters
-2. **LiteLLM uses a global manager**: We can replace `global_mcp_server_manager` without modifying source code
 
 ### Implementation Strategy
 
-```python
-# BEFORE: LiteLLM makes unauthenticated MCP requests
-response = requests.get(f"{mcp_server_url}/list_tools")
-
-# AFTER: Enhanced manager adds OAuth2 authentication
-headers = {"Authorization": f"Bearer {oauth2_token}"}
-async with sse_client(url=server.url, headers=headers) as (read, write):
-    # MCP requests now include OAuth2 authentication
-```
-
-### Authentication Flows
-
-```
-# Service-to-Service (Startup)
-LiteLLM → OAuth2 Server → Bearer Token → MCP Server Tools Discovery
-
-# User Passthrough (Runtime)  
-User Request → LiteLLM → MCP Server Tool Execution
-   (cookies)            (Bearer token + user cookies)
-```
+1. **Monkey Patch**: Replace `litellm.proxy._experimental.mcp_server.mcp_server_manager.global_mcp_server_manager`
+2. **OAuth2 Flow**: Implement client credentials flow with token caching
+3. **Cookie Forwarding**: Extract user cookies from LiteLLM requests and forward to MCP servers
+4. **Zero Code Changes**: LiteLLM source remains untouched
 
 ## Quick Start
 
-### 1. Deploy the Implementation
-
-Copy the `litellm-oauth2-patch/` directory to your deployment:
-
+### 1. Install Dependencies
 ```bash
-cp -r litellm-oauth2-patch/ /path/to/your/deployment/
+uv add litellm mcp pydantic httpx
 ```
 
-### 2. Install Dependencies
-
+### 2. Configure Authentication
 ```bash
-pip install litellm mcp httpx pydantic
+export MCP_OAUTH2_TOKEN_URL="https://auth.company.com/oauth2/token"
+export MCP_OAUTH2_CLIENT_ID="litellm-proxy"
+export MCP_OAUTH2_CLIENT_SECRET="your-secret"
+export LITELLM_MCP_AUTH_AUTO_PATCH=true
 ```
 
-### 3. Apply the Patch
+### 3. Use Drop-in Replacement
+```bash
+# Instead of: uv run litellm --config config.yaml --port 4000
+# Use this:
+uv run python litellm-mcp-auth-patch/litellm_with_mcp_auth.py --config config.yaml --port 4000
+```
 
+## Authentication Flows
+
+### Flow 1: Service Authentication (Startup)
+```
+┌─────────────┐    OAuth2     ┌─────────────┐    Tools List    ┌─────────────┐
+│ LiteLLM     │─────────────→ │ Auth Server │ ────────────────→│ MCP Server  │
+│ Proxy       │               │             │                  │             │
+│             │←──────────────│             │←─────────────────│ (Protected) │
+└─────────────┘   JWT Token   └─────────────┘    + JWT Auth    └─────────────┘
+```
+
+### Flow 2: User Session (Runtime)
+```
+┌──────┐   User Request   ┌─────────────┐   Tool Call + Auth   ┌─────────────┐
+│ User │─────────────────→│ LiteLLM     │─────────────────────→│ MCP Server  │
+│      │   (with cookies) │ Proxy       │ (JWT + User Cookies) │             │
+│      │                  │ + Patch     │                      │ (Protected) │
+└──────┘                  └─────────────┘                      └─────────────┘
+```
+
+## Core Files
+
+| File | Purpose |
+|------|---------|
+| `litellm_mcp_auth_patch.py` | **Main patch system** - replaces global MCP manager |
+| `enhanced_mcp_server_manager.py` | Enhanced manager with OAuth2 + cookie support |
+| `mcp_auth_token_manager.py` | OAuth2 client credentials + token caching |
+| `mcp_auth_config_schema.py` | Pydantic configuration schemas |
+| `litellm_with_mcp_auth.py` | **Drop-in CLI replacement** |
+
+## Configuration Examples
+
+### Basic OAuth2 Only
 ```python
-import sys
-sys.path.insert(0, '/path/to/litellm-oauth2-patch')
-
-from litellm_oauth2_patch import apply_oauth2_patch
-
-config = {
+{
+    "mcp_config": {
+        "default_oauth2": {
+            "token_url": "https://auth.company.com/oauth2/token",
+            "client_id": "litellm-proxy",
+            "client_secret": "${MCP_OAUTH2_CLIENT_SECRET}"
+        }
+    },
     "mcp_servers": {
         "protected_server": {
             "url": "https://protected-mcp.company.com/mcp",
-            "transport": "http",
+            "transport": "http"
+        }
+    }
+}
+```
+
+### OAuth2 + Cookie Passthrough
+```python
+{
+    "mcp_servers": {
+        "user_aware_server": {
+            "url": "https://user-tools.company.com/mcp",
             "auth": {
                 "oauth2": {
                     "token_url": "https://auth.company.com/oauth2/token",
-                    "client_id": "litellm-proxy",
-                    "client_secret": "${OAUTH2_CLIENT_SECRET}"
+                    "client_id": "specific-client-id",
+                    "client_secret": "${SPECIFIC_SECRET}"
+                },
+                "cookie_passthrough": {
+                    "enabled": true,
+                    "cookie_names": ["session_id", "user_context"]
                 }
             }
         }
     }
 }
-
-# Apply patch BEFORE importing LiteLLM
-apply_oauth2_patch(config)
-
-# Now use LiteLLM normally - OAuth2 works transparently!
-import litellm
-```
-
-### 4. Environment Variables (Alternative)
-
-```bash
-export MCP_OAUTH2_TOKEN_URL="https://auth.company.com/oauth2/token"
-export MCP_OAUTH2_CLIENT_ID="litellm-proxy"
-export MCP_OAUTH2_CLIENT_SECRET="your-secret-here"
-export LITELLM_ENABLE_OAUTH2_PATCH=true
-```
-
-```python
-import sys
-sys.path.insert(0, '/path/to/litellm-oauth2-patch')
-import litellm_oauth2_patch  # Automatically applies patch
 ```
 
 ## Validation
 
-Test that everything works:
-
+Verify the solution works:
 ```bash
-cd testing/
-python test_success_criteria.py
+python testing/test_success_criteria.py
 ```
 
 Expected output:
 ```
+🎯 SUCCESS CRITERIA TEST: MCP Authentication + LiteLLM MCP Integration
+✅ CRITERION 1: Patch LiteLLM without code modifications
+✅ CRITERION 2: MCP authentication capabilities integrated  
+✅ CRITERION 3: Authentication configurations loaded
+✅ CRITERION 4: Auth header preparation works
+✅ CRITERION 5: MCP SDK supports required authentication parameters
+
 🎊 SUCCESS: ALL CRITERIA MET!
-
-🎯 DEPLOYMENT READINESS:
-   ✅ OAuth2 authentication works with LiteLLM MCP
-   ✅ No LiteLLM source code modifications required
-   ✅ Service-to-service authentication supported
-   ✅ User cookie passthrough supported
-   ✅ Configuration schema validated
-
-🚀 READY FOR PRODUCTION with real OAuth2 endpoints!
+🚀 READY FOR PRODUCTION with real MCP authentication endpoints!
 ```
 
-## Configuration Examples
+## Why This Approach Works
 
-### Basic OAuth2 Authentication
+1. **No Source Code Changes**: Uses monkey patching to enhance LiteLLM without modification
+2. **Leverages Existing Capabilities**: MCP SDK already supports headers - we just use it
+3. **Addresses Both Use Cases**: Service authentication AND user session forwarding
+4. **Production Ready**: Includes proper error handling, token caching, and configuration
+5. **Backwards Compatible**: Existing MCP servers continue to work unchanged
 
-```yaml
-mcp_servers:
-  protected_server:
-    url: "https://protected-mcp.company.com/mcp"
-    transport: "http"
-    auth:
-      oauth2:
-        token_url: "https://auth.company.com/oauth2/token"
-        client_id: "litellm-proxy"
-        client_secret: "${OAUTH2_CLIENT_SECRET}"
-```
+## Security Benefits
 
-### OAuth2 + User Cookie Passthrough
+- ✅ **Service Authentication**: MCP servers can verify LiteLLM Proxy's identity
+- ✅ **User Context Preservation**: MCP tools can personalize responses per user
+- ✅ **Token Security**: OAuth2 tokens cached in memory only, automatic refresh
+- ✅ **Cookie Filtering**: Configurable cookie passthrough for security
+- ✅ **Zero Trust**: No open, unauthenticated MCP endpoints required
 
-```yaml
-mcp_servers:
-  user_context_server:
-    url: "https://user-mcp.company.com/mcp"
-    transport: "http"
-    auth:
-      oauth2:
-        token_url: "https://auth.company.com/oauth2/token"
-        client_id: "litellm-proxy"
-        client_secret: "${OAUTH2_CLIENT_SECRET}"
-      cookie_passthrough:
-        enabled: true
-        cookie_names: ["session_id", "user_id"]
-```
-
-### Global OAuth2 Configuration
-
-```yaml
-mcp_config:
-  default_oauth2:
-    token_url: "https://auth.company.com/oauth2/token"
-    client_id: "litellm-proxy"
-    client_secret: "${OAUTH2_CLIENT_SECRET}"
-    scope: "mcp:read mcp:write"
-
-mcp_servers:
-  server1:
-    url: "https://server1.company.com/mcp"
-    # Uses global OAuth2 config
-  
-  server2:
-    url: "https://server2.company.com/mcp"
-    # Uses global OAuth2 config
-```
-
-## Success Criteria - ALL MET ✅
-
-✅ **Configuration Success** - OAuth2 config loads without errors, environment variables work  
-✅ **Service Authentication Success** - Bearer tokens acquired and used for MCP requests  
-✅ **User Authentication Success** - Cookies forwarded with proper filtering  
-✅ **End-to-End Integration Success** - Complete flow works from token acquisition to tool execution  
-✅ **Single Container Success** - No external dependencies beyond OAuth2 endpoint  
-
-## Implementation Details
-
-The solution uses the **MCP SDK's built-in authentication support** combined with **monkey patching**:
-
-1. **`litellm_oauth2_patch.py`**: Replaces LiteLLM's global MCP manager before it's used
-2. **`enhanced_mcp_server_manager.py`**: Drop-in replacement that adds OAuth2 authentication using MCP SDK's `headers` parameter
-3. **`oauth2_token_manager.py`**: Handles OAuth2 client credentials flow with token caching
-4. **`oauth2_config_schema.py`**: Pydantic models for configuration validation
-
-## Deployment Patterns
-
-### Docker
-
-```dockerfile
-FROM python:3.11
-COPY litellm-oauth2-patch/ /app/oauth2-patch/
-WORKDIR /app
-RUN pip install litellm mcp httpx pydantic
-
-ENV MCP_OAUTH2_TOKEN_URL="https://auth.company.com/oauth2/token"
-ENV MCP_OAUTH2_CLIENT_ID="litellm-proxy"
-ENV LITELLM_ENABLE_OAUTH2_PATCH=true
-
-CMD ["python", "-c", "import sys; sys.path.insert(0, 'oauth2-patch'); import litellm_oauth2_patch; import litellm; litellm.run_proxy()"]
-```
-
-### LiteLLM Proxy Integration
-
-```python
-from litellm_oauth2_patch import load_oauth2_config_for_litellm_proxy
-
-def startup_hook(proxy_config):
-    return load_oauth2_config_for_litellm_proxy(proxy_config)
-```
-
-## Why This Approach
-
-**Compared to OAuth2 Proxy**: This approach is superior because:
-- ✅ Fewer moving parts (no separate proxy process)
-- ✅ Integrates directly with LiteLLM's MCP system
-- ✅ Uses MCP SDK's intended authentication mechanism
-- ✅ Maintains perfect API compatibility
-- ✅ Single container deployment
-
-**Compared to Code Modifications**: This approach is better because:
-- ✅ No LiteLLM source code changes required
-- ✅ Works with any LiteLLM version that supports MCP
-- ✅ Easy to deploy and maintain
-- ✅ Can be disabled/enabled dynamically
-
-## License
-
-MIT License
+This solution transforms LiteLLM Proxy from an **authentication-free system** into a **properly secured service** that can safely connect to protected MCP servers while maintaining user context.
