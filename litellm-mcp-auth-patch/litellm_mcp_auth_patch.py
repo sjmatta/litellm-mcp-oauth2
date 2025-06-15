@@ -24,6 +24,7 @@ import importlib
 from typing import Dict, Any, Optional
 from mcp_auth_config_schema import GlobalMCPConfig
 from enhanced_mcp_server_manager import EnhancedMCPServerManager, create_enhanced_manager_from_config
+from get_credential import get_credential
 
 # Track if patch has been applied
 _PATCH_APPLIED = False
@@ -118,11 +119,11 @@ def apply_mcp_auth_patch_from_env():
         except Exception as e:
             print(f"⚠️ Failed to load config file {config_file}: {e}")
     
-    # Try to build config from environment variables
+    # Try to build config from credential storage
     if not config:
-        token_url = os.getenv("MCP_OAUTH2_TOKEN_URL")
-        client_id = os.getenv("MCP_OAUTH2_CLIENT_ID")
-        client_secret = os.getenv("MCP_OAUTH2_CLIENT_SECRET")
+        token_url = get_credential("MCP_OAUTH2_TOKEN_URL")
+        client_id = get_credential("MCP_OAUTH2_CLIENT_ID")
+        client_secret = get_credential("MCP_OAUTH2_CLIENT_SECRET")
         
         if token_url and client_id and client_secret:
             config = {
@@ -131,14 +132,14 @@ def apply_mcp_auth_patch_from_env():
                         "token_url": token_url,
                         "client_id": client_id,
                         "client_secret": client_secret,
-                        "scope": os.getenv("MCP_OAUTH2_SCOPE", "mcp:read mcp:write")
+                        "scope": get_credential("MCP_OAUTH2_SCOPE") or "mcp:read mcp:write"
                     },
                     "default_cookie_passthrough": {
-                        "enabled": os.getenv("MCP_COOKIE_PASSTHROUGH", "true").lower() == "true"
+                        "enabled": (get_credential("MCP_COOKIE_PASSTHROUGH") or "true").lower() == "true"
                     }
                 }
             }
-            print("📋 Built MCP authentication config from environment variables")
+            print("📋 Built MCP authentication config from credential storage")
     
     # Apply patch
     apply_mcp_auth_patch(config)

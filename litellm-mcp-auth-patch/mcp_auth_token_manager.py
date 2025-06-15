@@ -13,6 +13,7 @@ from typing import Dict, Optional, Tuple
 import httpx
 import logging
 from mcp_auth_config_schema import OAuth2Config, TokenCache, OAuth2GrantType
+from get_credential import interpolate_credentials
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +50,9 @@ class OAuth2TokenManager:
         """Generate cache key for OAuth2 config"""
         return f"{config.token_url}:{config.client_id}:{config.scope or ''}"
     
-    def _interpolate_env_vars(self, value: str) -> str:
-        """Interpolate environment variables in config values"""
-        if value.startswith("${") and value.endswith("}"):
-            env_var = value[2:-1]
-            return os.getenv(env_var, value)
-        return value
+    def _interpolate_credentials(self, value: str) -> str:
+        """Interpolate credential references in config values"""
+        return interpolate_credentials(value)
     
     async def get_access_token(self, config: OAuth2Config) -> str:
         """
@@ -120,10 +118,10 @@ class OAuth2TokenManager:
         if not self._http_client:
             raise RuntimeError("OAuth2TokenManager not initialized - use async context manager")
         
-        # Interpolate environment variables
-        client_id = self._interpolate_env_vars(config.client_id)
-        client_secret = self._interpolate_env_vars(config.client_secret)
-        token_url = self._interpolate_env_vars(config.token_url)
+        # Interpolate credential references
+        client_id = self._interpolate_credentials(config.client_id)
+        client_secret = self._interpolate_credentials(config.client_secret)
+        token_url = self._interpolate_credentials(config.token_url)
         
         # Prepare token request
         request_data = {

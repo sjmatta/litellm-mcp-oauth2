@@ -53,12 +53,17 @@ uv add litellm mcp pydantic httpx
 ```
 
 ### 2. Configure Authentication
+
+For development (environment variables):
 ```bash
 export MCP_OAUTH2_TOKEN_URL="https://auth.company.com/oauth2/token"
 export MCP_OAUTH2_CLIENT_ID="litellm-proxy"
 export MCP_OAUTH2_CLIENT_SECRET="your-secret"
 export LITELLM_MCP_AUTH_AUTO_PATCH=true
 ```
+
+For production (secure credential storage):
+Replace the `get_credential()` function in `get_credential.py` with your AWS Secrets Manager or equivalent secure storage implementation.
 
 ### 3. Use Drop-in Replacement
 ```bash
