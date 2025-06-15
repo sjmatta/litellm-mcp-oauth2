@@ -25,6 +25,7 @@ from mcp_auth_config_schema import (
     MCPServerConfig
 )
 from mcp_auth_token_manager import OAuth2TokenManager, MCPAuthHeaderBuilder, get_global_token_manager
+from mcp_auth_utils import CookieProcessor
 
 try:
     from mcp.client.streamable_http import streamablehttp_client
@@ -70,10 +71,10 @@ class EnhancedMCPServerManager:
         # Enhanced server configurations
         self.server_auth_configs: Dict[str, MCPAuthConfig] = {}
     
-    async def initialize_auth(self):
+    def initialize_auth(self):
         """Initialize OAuth2 authentication components"""
         if self.token_manager is None:
-            self.token_manager = await get_global_token_manager()
+            self.token_manager = get_global_token_manager()
             self.header_builder = MCPAuthHeaderBuilder(self.token_manager)
             verbose_logger.debug("Initialized OAuth2 authentication components")
     
@@ -143,7 +144,7 @@ class EnhancedMCPServerManager:
         Returns:
             Dictionary of headers to add to MCP request
         """
-        await self.initialize_auth()
+        self.initialize_auth()
         
         # Get server-specific auth config or fall back to global config
         auth_config = self.server_auth_configs.get(server.server_id)
@@ -170,7 +171,11 @@ class EnhancedMCPServerManager:
         # Process user cookies based on passthrough config
         processed_cookies = None
         if user_cookies and cookie_passthrough_config and cookie_passthrough_config.enabled:
-            processed_cookies = self._process_user_cookies(user_cookies, cookie_passthrough_config)
+            processed_cookies = CookieProcessor.filter_cookies(
+                user_cookies,
+                cookie_passthrough_config.cookie_names,
+                cookie_passthrough_config.cookie_prefix
+            )
         
         # Build headers using header builder
         if self.header_builder:
@@ -189,51 +194,6 @@ class EnhancedMCPServerManager:
         verbose_logger.debug(f"Built auth headers for {server.name}: {list(headers.keys())}")
         return headers
     
-    def _process_user_cookies(
-        self, 
-        user_cookies: str, 
-        config: CookiePassthroughConfig
-    ) -> Optional[str]:
-        """
-        Process user cookies based on passthrough configuration.
-        
-        Args:
-            user_cookies: Raw cookie string from user request
-            config: Cookie passthrough configuration
-            
-        Returns:
-            Processed cookie string or None
-        """
-        if not config.enabled:
-            return None
-        
-        # If no filtering specified, return all cookies
-        if not config.cookie_names and not config.cookie_prefix:
-            return user_cookies
-        
-        # Parse cookies and filter
-        filtered_cookies = []
-        cookie_pairs = [c.strip() for c in user_cookies.split(';') if c.strip()]
-        
-        for cookie_pair in cookie_pairs:
-            if '=' not in cookie_pair:
-                continue
-            
-            cookie_name = cookie_pair.split('=', 1)[0].strip()
-            
-            # Check cookie name filters
-            include_cookie = False
-            
-            if config.cookie_names:
-                include_cookie = cookie_name in config.cookie_names
-            
-            if config.cookie_prefix:
-                include_cookie = include_cookie or cookie_name.startswith(config.cookie_prefix)
-            
-            if include_cookie:
-                filtered_cookies.append(cookie_pair)
-        
-        return '; '.join(filtered_cookies) if filtered_cookies else None
     
     async def _get_tools_from_server(
         self, 

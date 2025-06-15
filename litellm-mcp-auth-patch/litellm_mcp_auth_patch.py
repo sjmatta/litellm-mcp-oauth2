@@ -18,13 +18,11 @@ Usage:
     import litellm
 """
 
-import sys
 import os
-import importlib
 from typing import Dict, Any, Optional
-from mcp_auth_config_schema import GlobalMCPConfig
-from enhanced_mcp_server_manager import EnhancedMCPServerManager, create_enhanced_manager_from_config
-from get_credential import get_credential
+from mcp_auth_config_schema import GlobalMCPConfig  
+from enhanced_mcp_server_manager import EnhancedMCPServerManager
+from mcp_auth_utils import ConfigurationLoader, ErrorHandler
 
 # Track if patch has been applied
 _PATCH_APPLIED = False
@@ -84,61 +82,25 @@ def apply_mcp_auth_patch(config: Optional[Dict[str, Any]] = None):
         raise
 
 
-async def _create_enhanced_manager(config: Dict[str, Any]) -> EnhancedMCPServerManager:
-    """Create enhanced manager with async initialization"""
-    return await create_enhanced_manager_from_config(config)
 
 
 def apply_mcp_auth_patch_from_env():
-    """
-    Apply MCP authentication patch using configuration from environment variables.
-    
-    Looks for:
-    - MCP_OAUTH2_CONFIG_FILE: Path to JSON/YAML config file
-    - MCP_OAUTH2_TOKEN_URL: OAuth2 token endpoint
-    - MCP_OAUTH2_CLIENT_ID: OAuth2 client ID  
-    - MCP_OAUTH2_CLIENT_SECRET: OAuth2 client secret
-    """
+    """Apply MCP authentication patch using configuration from environment or files."""
     config = None
     
-    # Try to load from config file
+    # Try to load from config file first
     config_file = os.getenv("MCP_OAUTH2_CONFIG_FILE")
-    if config_file and os.path.exists(config_file):
+    if config_file:
         try:
-            import json
-            import yaml
-            
-            with open(config_file, 'r') as f:
-                if config_file.endswith(('.yaml', '.yml')):
-                    config = yaml.safe_load(f)
-                else:
-                    config = json.load(f)
-            
+            config = ConfigurationLoader.load_from_file(config_file)
             print(f"📋 Loaded MCP authentication config from {config_file}")
-            
         except Exception as e:
-            print(f"⚠️ Failed to load config file {config_file}: {e}")
+            ErrorHandler.log_warning(print, f"Failed to load config file {config_file}", e)
     
-    # Try to build config from credential storage
+    # Fall back to environment variables
     if not config:
-        token_url = get_credential("MCP_OAUTH2_TOKEN_URL")
-        client_id = get_credential("MCP_OAUTH2_CLIENT_ID")
-        client_secret = get_credential("MCP_OAUTH2_CLIENT_SECRET")
-        
-        if token_url and client_id and client_secret:
-            config = {
-                "mcp_config": {
-                    "default_oauth2": {
-                        "token_url": token_url,
-                        "client_id": client_id,
-                        "client_secret": client_secret,
-                        "scope": get_credential("MCP_OAUTH2_SCOPE") or "mcp:read mcp:write"
-                    },
-                    "default_cookie_passthrough": {
-                        "enabled": (get_credential("MCP_COOKIE_PASSTHROUGH") or "true").lower() == "true"
-                    }
-                }
-            }
+        config = ConfigurationLoader.load_from_env()
+        if config:
             print("📋 Built MCP authentication config from credential storage")
     
     # Apply patch
@@ -242,51 +204,12 @@ if os.getenv("LITELLM_ENABLE_MCP_AUTH_PATCH", "false").lower() == "true":
     apply_mcp_auth_patch_from_env()
 
 
-# Example usage patterns
-USAGE_EXAMPLES = """
-# Example 1: Apply patch with configuration
-from litellm_mcp_auth_patch import apply_mcp_auth_patch
-
-config = {
-    "mcp_config": {
-        "default_oauth2": {
-            "token_url": "https://auth.company.com/oauth2/token",
-            "client_id": "litellm-proxy",
-            "client_secret": "${OAUTH2_CLIENT_SECRET}"
-        }
-    },
-    "mcp_servers": {
-        "protected_server": {
-            "url": "https://protected-mcp.company.com/mcp",
-            "transport": "http"
-        }
-    }
-}
-apply_mcp_auth_patch(config)
-
-# Now use LiteLLM normally
-import litellm
-
-# Example 2: Apply patch from environment
-export MCP_OAUTH2_TOKEN_URL="https://auth.company.com/oauth2/token"
-export MCP_OAUTH2_CLIENT_ID="litellm-proxy"
-export MCP_OAUTH2_CLIENT_SECRET="secret123"
-
-from litellm_mcp_auth_patch import apply_mcp_auth_patch_from_env
-apply_mcp_auth_patch_from_env()
-
-# Example 3: Auto-patch on import
-export LITELLM_ENABLE_MCP_AUTH_PATCH=true
-import litellm_mcp_auth_patch  # Automatically applies patch
-
-# Example 4: LiteLLM proxy integration
-from litellm_mcp_auth_patch import integrate_with_litellm_proxy
-integrate_with_litellm_proxy()
-"""
-
 if __name__ == "__main__":
     print("LiteLLM MCP Authentication Patch")
     print("=" * 40)
     print("This module patches LiteLLM to add OAuth2 authentication and user cookie passthrough for MCP servers.")
-    print("\nUsage examples:")
-    print(USAGE_EXAMPLES)
+    print("\nKey functions:")
+    print("- apply_mcp_auth_patch(config) - Apply patch with configuration")
+    print("- apply_mcp_auth_patch_from_env() - Apply patch from environment variables")
+    print("- remove_mcp_auth_patch() - Remove patch")
+    print("- is_patch_applied() - Check if patch is applied")

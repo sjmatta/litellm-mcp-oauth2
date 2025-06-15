@@ -65,12 +65,15 @@ User Response          ←─────────────┘
 - `enhanced_mcp_server_manager.py` - Enhanced MCP manager with OAuth2 + cookie support
 - `mcp_auth_token_manager.py` - OAuth2 client credentials flow + token caching
 - `mcp_auth_config_schema.py` - Pydantic configuration schemas and validation
+- `mcp_auth_utils.py` - **Shared utilities** - DRY principles, HTTP client, config loading
+- `get_credential.py` - **Secure credential accessor** - replaceable with AWS Secrets Manager
 - `litellm_with_mcp_auth.py` - **Drop-in CLI replacement** for `uv run litellm`
 
 ### Documentation & Testing
 - `README.md` - Main solution overview with problem/solution focus
 - `SOLUTION_SUMMARY.md` - Core implementation details and technical flows
 - `PROJECT_STRUCTURE.md` - Organized view of solution components
+- `CLEAN_CODE_REFACTORING.md` - **Clean code improvements** - DRY principles applied
 - `testing/test_success_criteria.py` - Core validation tests (no network required)
 
 ## Key Features Implemented
